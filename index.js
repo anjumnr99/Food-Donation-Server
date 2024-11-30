@@ -150,7 +150,7 @@ async function run() {
         individualDonor = findIndividualDonor?.role === 'donors';
       }
       console.log('IndividualDonor', individualDonor);
-      res.send({ individualDonor,findIndividualDonor })
+      res.send({ individualDonor, findIndividualDonor })
     })
     app.get('/businessDonor/:email', async (req, res) => {
       const email = req.params.email;
@@ -161,18 +161,21 @@ async function run() {
         businessDonor = findBusinessDonor?.role === 'donors';
       }
       console.log('businessDonor', businessDonor);
-      res.send({ businessDonor,findBusinessDonor  })
+      res.send({ businessDonor, findBusinessDonor })
     })
 
-    app.get('/donations/donors', async (req, res) => {
+    app.get('/activeDonations/donors', async (req, res) => {
       console.log(req.query.email);
       const email = req.query.email;
-      const query = { created_by: email };
+      const query = {
+        created_by: email,
+        creation_status: "available"
+      };
       const result = await donationCollection.find(query).toArray();
       res.send(result);
     });
 
-    app.put('/updateProfile/:id', async (req, res) => {
+    app.put('/updateRecipientProfile/:id', async (req, res) => {
       const ids = req.params.id;
       const filter = { _id: new ObjectId(ids) };
       const options = { upsert: true };
@@ -187,14 +190,53 @@ async function run() {
 
         }
       }
-
       const result = await recipientCollection.updateOne(filter, product, options);
       res.send(result)
 
     });
 
+    app.put('/updateDonorsProfile/individual/:id', async (req, res) => {
+      const ids = req.params.id;
+      const filter = { _id: new ObjectId(ids) };
+      const options = { upsert: true };
+      const updatedProfile = req.body;
+      const product = {
+        $set: {
+          name: updatedProfile.name,
+          email: updatedProfile.email,
+          phone: updatedProfile.phone,
+          address: updatedProfile.address,
+          role: updatedProfile.role
+
+        }
+      }
+      const result = await individualDonorsCollection.updateOne(filter, product, options);
+      res.send(result)
+
+    });
+    app.put('/updateDonorsProfile/business/:id', async (req, res) => {
+      const ids = req.params.id;
+      const filter = { _id: new ObjectId(ids) };
+      const options = { upsert: true };
+      const updatedProfile = req.body;
+      const product = {
+        $set: {
+          businessName: updatedProfile.businessName,
+          contactName: updatedProfile.contactName,
+          email: updatedProfile.email,
+          phone: updatedProfile.phone,
+          website: updatedProfile.website,
+          address: updatedProfile.address,
+          role: updatedProfile.role
+        }
+      }
+      const result = await businessDonorsCollection.updateOne(filter, product, options);
+      res.send(result)
+
+    });
+
     app.get('/foodRequest', async (req, res) => {
-      console.log("Food Request For each",req.query.email);
+      console.log("Food Request For each", req.query.email);
       const email = req.query.email;
       const query = { requested_by: email };
       const result = await foodRequestCollection.find(query).toArray();
@@ -207,22 +249,212 @@ async function run() {
       const result = await foodRequestCollection.deleteOne(query);
       res.send(result);
     });
+    app.delete('/donation/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) }
+      const result = await donationCollection.deleteOne(query);
+      res.send(result);
+    });
 
     app.get('/donations/nearby/:recipientAddress', async (req, res) => {
       const recipientAddress = req.params.recipientAddress
-          ?.split(/[\s,]+/) // Split on spaces or commas
-          .map(word => word.trim()) || [];
-  
+        ?.split(/[\s,]+/) // Split on spaces or commas
+        .map(word => word.trim()) || [];
+
+      console.log("Recipient nearby", recipientAddress);
       const query = {
-          $or: recipientAddress.map(word => ({
-              location: { $regex: word, $options: 'i' }
-          })),
-          status: "available"
+        $or: recipientAddress.map(word => ({
+          location: { $regex: word, $options: 'i' }
+        })),
+        creation_status: "available"
       };
-  
+
       const nearbyDonations = await donationCollection.find(query).toArray();
       res.send(nearbyDonations);
-  });
+    });
+
+    app.get('/foodRequest/nearby/:donorsAddress', async (req, res) => {
+      const donorsAddress = req.params.donorsAddress
+        ?.split(/[\s,]+/) // Split on spaces or commas
+        .map(word => word.trim()) || [];
+
+      console.log(donorsAddress);
+
+      const query = {
+        $or: donorsAddress.map(word => ({
+          location: { $regex: word, $options: 'i' }
+        })),
+
+        request_status: "pending"
+      };
+
+      const nearbyFoodRequests = await foodRequestCollection.find(query).toArray();
+      res.send(nearbyFoodRequests);
+    });
+
+    app.get('/acceptedRequests/:email', async (req, res) => {
+      const email = req.params.email;
+      const query = { accepted_by: email }
+
+      const acceptedRequests = await foodRequestCollection.find(query).toArray();
+      res.send(acceptedRequests);
+    });
+
+    app.patch('/foodRequest/accept/:id', async (req, res) => {
+      const id = req.params.id;
+      const acceptByMail = req.body.acceptedBy; // Read acceptedBy from the body
+      console.log("Accepted by:", acceptByMail);
+
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+
+          request_status: 'accepted',
+          accepted_by: acceptByMail
+        }
+      };
+
+      const result = await foodRequestCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+    app.patch('/foodRequest/decline/:id', async (req, res) => {
+      const id = req.params.id;
+
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          request_status: 'pending',
+          accepted_by: 'N/A'
+        }
+      };
+
+      const result = await foodRequestCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+
+    app.patch('/donation/accept/:id', async (req, res) => {
+      console.log("Received Body:", req.body); // Log the entire body
+      console.log("Accepted By:", req.body.acceptedBy); // Log specific field
+      const id = req.params.id;
+      const acceptByMail = req.body.acceptedBy; // Ensure this is being sent correctly
+
+      console.log("Donation Accepted by:", acceptByMail);
+
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          accepting_status: 'accepted',
+          accepted_by: acceptByMail,
+        },
+      };
+
+      const result = await donationCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+
+    app.patch('/donation/decline/:id', async (req, res) => {
+      const id = req.params.id;
+
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          accepting_status: 'pending',
+          accepted_by: 'N/A'
+        }
+      };
+
+      const result = await donationCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+
+    app.patch('/donation/confirm/:id', async (req, res) => {
+      const id = req.params.id;
+
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          accepting_status: 'confirm',
+        }
+      };
+
+      const result = await donationCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+
+    app.patch('/donation/reject/:id', async (req, res) => {
+      const id = req.params.id;
+
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          accepting_status: 'pending',
+          accepted_by: 'N/A'
+        }
+      };
+
+      const result = await donationCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+    app.patch('/donation/complete/:id', async (req, res) => {
+      const id = req.params.id;
+
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          accepting_status: 'completed'
+        }
+      };
+
+      const result = await donationCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+    app.patch('/donation/close/:id', async (req, res) => {
+      const id = req.params.id;
+
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          creation_status: "close"
+        }
+      };
+
+      const result = await donationCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+
+    app.get('/closedDonations/donors', async (req, res) => {
+      const email = req.query.email; // Use query parameter
+      const query = {
+        created_by: email,
+        creation_status: 'close'
+      };
+
+      const acceptedRequests = await donationCollection.find(query).toArray();
+      res.send(acceptedRequests);
+    });
+
+   
+    app.post('/notification/add', async (req, res) => {
+      const newNotification = req.body;
+      console.log("Notification Added",newNotification);
+      const result = await notificationCollection.insertOne(newNotification);
+      res.send(result);
+    });
+
+    app.get('/notifications/:email', async (req, res) => {
+      try {
+        const email = req.params.email;
+        const query = { sent_to: email };
+        const notifications = await notificationCollection.find(query).toArray();
+        
+        console.log('Fetched Notifications for:', email, notifications);
+        res.send({ notifications }); 
+      } catch (error) {
+        console.error('Error fetching notifications:', error);
+        res.status(500).send({ message: 'Failed to fetch notifications', error });
+      }
+    });
+
 
 
 
